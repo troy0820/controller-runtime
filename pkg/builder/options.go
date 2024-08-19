@@ -58,7 +58,7 @@ type Predicates struct {
 
 // ApplyToFor applies this configuration to the given ForInput options.
 func (w Predicates) ApplyToFor(opts *ForInput) {
-	opts.predicates = w.predicates
+	opts.predicates = append(opts.predicates, w.predicates...)
 }
 
 // ApplyToOwns applies this configuration to the given OwnsInput options.

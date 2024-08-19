@@ -525,6 +525,66 @@ var _ = Describe("application", func() {
 			Expect(replicaSetPrctExecuted).To(BeTrue(), "ReplicaSet predicated should be called at least once")
 			Expect(allPrctExecuted).To(BeNumerically(">=", 2), "Global Predicated should be called at least twice")
 		})
+
+		It("should allow multiple registered predicates only for assigned kind", func() {
+			m, err := manager.New(cfg, manager.Options{})
+			Expect(err).NotTo(HaveOccurred())
+
+			var (
+				deployPrctExecuted     = false
+				replicaSetPrctExecuted = false
+				allPrctExecuted        = int64(0)
+			)
+
+			deployPrct := predicate.Funcs{
+				CreateFunc: func(e event.CreateEvent) bool {
+					defer GinkgoRecover()
+					// check that it was called only for deployment
+					Expect(e.Object).To(BeAssignableToTypeOf(&appsv1.Deployment{}))
+					deployPrctExecuted = true
+					return true
+				},
+			}
+
+			replicaSetPrct := predicate.Funcs{
+				CreateFunc: func(e event.CreateEvent) bool {
+					defer GinkgoRecover()
+					// check that it was called only for replicaset
+					Expect(e.Object).To(BeAssignableToTypeOf(&appsv1.ReplicaSet{}))
+					replicaSetPrctExecuted = true
+					return true
+				},
+			}
+
+			allPrct := predicate.Funcs{
+				CreateFunc: func(e event.CreateEvent) bool {
+					defer GinkgoRecover()
+					// check that it was called for all registered kinds
+					Expect(e.Object).Should(Or(
+						BeAssignableToTypeOf(&appsv1.Deployment{}),
+						BeAssignableToTypeOf(&appsv1.ReplicaSet{}),
+					))
+
+					atomic.AddInt64(&allPrctExecuted, 1)
+					return true
+				},
+			}
+
+			bldr := ControllerManagedBy(m).
+				For(&appsv1.Deployment{}, WithPredicates(allPrct, deployPrct)).
+				Named("deployment-9").
+				Owns(&appsv1.ReplicaSet{}, WithPredicates(replicaSetPrct)).
+				WithEventFilter(allPrct)
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			doReconcileTest(ctx, "19", m, true, bldr)
+
+			Expect(deployPrctExecuted).To(BeTrue(), "Deploy predicated should be called at least once")
+			Expect(replicaSetPrctExecuted).To(BeTrue(), "ReplicaSet predicated should be called at least once")
+			Expect(allPrctExecuted).To(BeNumerically(">=", 2), "Global Predicated should be called at least twice")
+			Expect(bldr.forInput.predicates).To(HaveLen(2))
+		})
 	})
 
 	Describe("watching with projections", func() {
