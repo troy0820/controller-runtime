@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/priorityqueue"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	logf "sigs.k8s.io/controller-runtime/pkg/internal/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -52,25 +53,59 @@ func (e *TypedEnqueueRequestForObject[T]) Create(ctx context.Context, evt event.
 		enqueueLog.Error(nil, "CreateEvent received with no metadata", "event", evt)
 		return
 	}
-	q.Add(reconcile.Request{NamespacedName: types.NamespacedName{
+
+	item := reconcile.Request{NamespacedName: types.NamespacedName{
 		Name:      evt.Object.GetName(),
 		Namespace: evt.Object.GetNamespace(),
-	}})
+	}}
+
+	priorityQueue, isPriorityQueue := q.(priorityqueue.PriorityQueue[reconcile.Request])
+	if !isPriorityQueue {
+		q.Add(item)
+		return
+	}
+	var priority int
+	if isObjectUnchanged(evt) {
+		priority = LowPriority
+	}
+	priorityQueue.AddWithOpts(priorityqueue.AddOpts{Priority: priority}, item)
 }
 
 // Update implements EventHandler.
 func (e *TypedEnqueueRequestForObject[T]) Update(ctx context.Context, evt event.TypedUpdateEvent[T], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	switch {
 	case !isNil(evt.ObjectNew):
-		q.Add(reconcile.Request{NamespacedName: types.NamespacedName{
+		item := reconcile.Request{NamespacedName: types.NamespacedName{
 			Name:      evt.ObjectNew.GetName(),
 			Namespace: evt.ObjectNew.GetNamespace(),
-		}})
+		}}
+
+		priorityQueue, isPriorityQueue := q.(priorityqueue.PriorityQueue[reconcile.Request])
+		if !isPriorityQueue {
+			q.Add(item)
+			return
+		}
+		var priority int
+		if evt.ObjectOld.GetResourceVersion() == evt.ObjectNew.GetResourceVersion() {
+			priority = LowPriority
+		}
+		priorityQueue.AddWithOpts(priorityqueue.AddOpts{Priority: priority}, item)
 	case !isNil(evt.ObjectOld):
-		q.Add(reconcile.Request{NamespacedName: types.NamespacedName{
+		item := reconcile.Request{NamespacedName: types.NamespacedName{
 			Name:      evt.ObjectOld.GetName(),
 			Namespace: evt.ObjectOld.GetNamespace(),
-		}})
+		}}
+
+		priorityQueue, isPriorityQueue := q.(priorityqueue.PriorityQueue[reconcile.Request])
+		if !isPriorityQueue {
+			q.Add(item)
+			return
+		}
+		var priority int
+		if evt.ObjectOld.GetResourceVersion() == evt.ObjectNew.GetResourceVersion() {
+			priority = LowPriority
+		}
+		priorityQueue.AddWithOpts(priorityqueue.AddOpts{Priority: priority}, item)
 	default:
 		enqueueLog.Error(nil, "UpdateEvent received with no metadata", "event", evt)
 	}
