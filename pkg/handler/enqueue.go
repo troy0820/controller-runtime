@@ -64,11 +64,7 @@ func (e *TypedEnqueueRequestForObject[T]) Create(ctx context.Context, evt event.
 		q.Add(item)
 		return
 	}
-	var priority int
-	if isObjectUnchanged(evt) {
-		priority = LowPriority
-	}
-	priorityQueue.AddWithOpts(priorityqueue.AddOpts{Priority: priority}, item)
+	addToPriorityQueueCreate(priorityQueue, evt, item)
 }
 
 // Update implements EventHandler.
@@ -85,11 +81,7 @@ func (e *TypedEnqueueRequestForObject[T]) Update(ctx context.Context, evt event.
 			q.Add(item)
 			return
 		}
-		var priority int
-		if evt.ObjectOld.GetResourceVersion() == evt.ObjectNew.GetResourceVersion() {
-			priority = LowPriority
-		}
-		priorityQueue.AddWithOpts(priorityqueue.AddOpts{Priority: priority}, item)
+		addToPriorityQueueUpdate(priorityQueue, evt, item)
 	case !isNil(evt.ObjectOld):
 		item := reconcile.Request{NamespacedName: types.NamespacedName{
 			Name:      evt.ObjectOld.GetName(),
@@ -101,11 +93,7 @@ func (e *TypedEnqueueRequestForObject[T]) Update(ctx context.Context, evt event.
 			q.Add(item)
 			return
 		}
-		var priority int
-		if evt.ObjectOld.GetResourceVersion() == evt.ObjectNew.GetResourceVersion() {
-			priority = LowPriority
-		}
-		priorityQueue.AddWithOpts(priorityqueue.AddOpts{Priority: priority}, item)
+		addToPriorityQueueUpdate(priorityQueue, evt, item)
 	default:
 		enqueueLog.Error(nil, "UpdateEvent received with no metadata", "event", evt)
 	}

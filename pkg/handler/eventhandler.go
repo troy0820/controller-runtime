@@ -199,3 +199,23 @@ func (w workqueueWithCustomAddFunc[request]) Add(item request) {
 func isObjectUnchanged[object client.Object](e event.TypedCreateEvent[object]) bool {
 	return e.Object.GetCreationTimestamp().Time.Before(time.Now().Add(-time.Minute))
 }
+
+// addToPriorityQueueCreate adds the reconcile.Request to the priorityqueue in the handler
+// for Create requests if and only if the workqueue being used is of type priorityqueue.PriorityQueue[reconcile.Request]
+func addToPriorityQueueCreate[T client.Object](q priorityqueue.PriorityQueue[reconcile.Request], evt event.TypedCreateEvent[T], item reconcile.Request) {
+	var priority int
+	if isObjectUnchanged(evt) {
+		priority = LowPriority
+	}
+	q.AddWithOpts(priorityqueue.AddOpts{Priority: priority}, item)
+}
+
+// addToPriorityQueueUpdate adds the reconcile.Request to the priorityqueue in the handler
+// for Update requests if and only if the workqueue being used is of type priorityqueue.PriorityQueue[reconcile.Request]
+func addToPriorityQueueUpdate[T client.Object](q priorityqueue.PriorityQueue[reconcile.Request], evt event.TypedUpdateEvent[T], item reconcile.Request) {
+	var priority int
+	if evt.ObjectOld.GetResourceVersion() == evt.ObjectNew.GetResourceVersion() {
+		priority = LowPriority
+	}
+	q.AddWithOpts(priorityqueue.AddOpts{Priority: priority}, item)
+}

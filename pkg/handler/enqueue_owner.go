@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/priorityqueue"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	logf "sigs.k8s.io/controller-runtime/pkg/internal/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -109,6 +110,11 @@ func (e *enqueueRequestForOwner[object]) Create(ctx context.Context, evt event.T
 	reqs := map[reconcile.Request]empty{}
 	e.getOwnerReconcileRequest(evt.Object, reqs)
 	for req := range reqs {
+		priorityQueue, isPriorityQueue := q.(priorityqueue.PriorityQueue[reconcile.Request])
+		if isPriorityQueue {
+			addToPriorityQueueCreate(priorityQueue, evt, req)
+			continue
+		}
 		q.Add(req)
 	}
 }
@@ -119,6 +125,11 @@ func (e *enqueueRequestForOwner[object]) Update(ctx context.Context, evt event.T
 	e.getOwnerReconcileRequest(evt.ObjectOld, reqs)
 	e.getOwnerReconcileRequest(evt.ObjectNew, reqs)
 	for req := range reqs {
+		priorityQueue, isPriorityQueue := q.(priorityqueue.PriorityQueue[reconcile.Request])
+		if isPriorityQueue {
+			addToPriorityQueueUpdate(priorityQueue, evt, req)
+			continue
+		}
 		q.Add(req)
 	}
 }
