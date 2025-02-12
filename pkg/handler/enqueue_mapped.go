@@ -21,6 +21,7 @@ import (
 
 	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/priorityqueue"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
@@ -81,7 +82,12 @@ func (e *enqueueRequestsFromMapFunc[object, request]) Create(
 	q workqueue.TypedRateLimitingInterface[request],
 ) {
 	reqs := map[request]empty{}
-	e.mapAndEnqueue(ctx, q, evt.Object, reqs)
+	priorityQueue, isPriorityQueue := q.(priorityqueue.PriorityQueue[request])
+	if !isPriorityQueue {
+		e.mapAndEnqueue(ctx, q, evt.Object, reqs)
+		return
+	}
+	e.mapAndEnqueuePriorityCreate(ctx, priorityQueue, evt.Object, reqs)
 }
 
 // Update implements EventHandler.
@@ -90,9 +96,14 @@ func (e *enqueueRequestsFromMapFunc[object, request]) Update(
 	evt event.TypedUpdateEvent[object],
 	q workqueue.TypedRateLimitingInterface[request],
 ) {
+	priorityQueue, isPriorityQueue := q.(priorityqueue.PriorityQueue[request])
 	reqs := map[request]empty{}
-	e.mapAndEnqueue(ctx, q, evt.ObjectOld, reqs)
-	e.mapAndEnqueue(ctx, q, evt.ObjectNew, reqs)
+	if !isPriorityQueue {
+		e.mapAndEnqueue(ctx, q, evt.ObjectOld, reqs)
+		e.mapAndEnqueue(ctx, q, evt.ObjectNew, reqs)
+		return
+	}
+	e.mapAndEnqueuePriorityUpdate(ctx, priorityQueue, evt.ObjectOld, evt.ObjectNew, reqs)
 }
 
 // Delete implements EventHandler.
@@ -122,5 +133,36 @@ func (e *enqueueRequestsFromMapFunc[object, request]) mapAndEnqueue(ctx context.
 			q.Add(req)
 			reqs[req] = empty{}
 		}
+	}
+}
+
+func (e *enqueueRequestsFromMapFunc[object, request]) mapAndEnqueuePriorityCreate(ctx context.Context, q priorityqueue.PriorityQueue[request], o object, reqs map[request]empty) {
+	for _, req := range e.toRequests(ctx, o) {
+		var priority int
+		obj := any(o).(client.Object)
+		evtObj := event.TypedCreateEvent[client.Object]{
+			Object: obj,
+		}
+		if isObjectUnchanged(evtObj) {
+			priority = LowPriority
+		}
+
+		q.AddWithOpts(priorityqueue.AddOpts{Priority: priority}, req)
+		reqs[req] = empty{}
+	}
+}
+
+func (e *enqueueRequestsFromMapFunc[object, request]) mapAndEnqueuePriorityUpdate(ctx context.Context, q priorityqueue.PriorityQueue[request], oldobj object, newobj object, reqs map[request]empty) {
+	list := e.toRequests(ctx, oldobj)
+	list = append(list, e.toRequests(ctx, newobj)...)
+	for _, req := range list {
+		var priority int
+		objnew := any(oldobj).(client.Object)
+		objold := any(newobj).(client.Object)
+		if objnew.GetResourceVersion() == objold.GetResourceVersion() {
+			priority = LowPriority
+		}
+		q.AddWithOpts(priorityqueue.AddOpts{Priority: priority}, req)
+		reqs[req] = empty{}
 	}
 }
